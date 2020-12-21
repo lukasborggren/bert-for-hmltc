@@ -1,0 +1,8 @@
+tqdm
+transformers
+numpy
+torch
+scipy
+pandas
+beautifulsoup4
+scikit_learn
