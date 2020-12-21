@@ -7,11 +7,10 @@ import torch
 from transformers import BertTokenizer
 
 from models import BertBaseline, BertExperimental
-from processor import MultiLabelTextProcessor
+from processor import TextProcessor
 
 from trainer import ModelTrainer
-
-# from evaluator import ModelEvaluator
+from evaluator import ModelEvaluator
 
 
 logging.basicConfig(
@@ -22,10 +21,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def load_baseline(num_labels, BASE_PATH):
-    config = join(BASE_PATH, "config.json")
-    model_state_dict = torch.load(join(BASE_PATH, "pytorch_model.bin"))
-
+def load_baseline(args, num_labels):
+    MODEL_PATH = join(args["DATA_PATH"], "model_files/bert-base-uncased")
+    config = join(MODEL_PATH, "config.json")
+    model_state_dict = torch.load(join(MODEL_PATH, "pytorch_model.bin"))
     model = BertBaseline.from_pretrained(
         config, num_labels=num_labels, state_dict=model_state_dict
     )
@@ -34,9 +33,9 @@ def load_baseline(num_labels, BASE_PATH):
 
 
 def load_experimental(num_labels):
-    BASE_PATH = "mltc/data/model_files/"
-    config = BASE_PATH + "config.json"
-    model_state_dict = torch.load(BASE_PATH + "finetuned_2020-08-03_pytorch_model.bin")
+    DATA_PATH = "mltc/data/model_files/"
+    config = DATA_PATH + "config.json"
+    model_state_dict = torch.load(DATA_PATH + "finetuned_2020-08-03_pytorch_model.bin")
     del model_state_dict["classifier.weight"]
     del model_state_dict["classifier.bias"]
 
@@ -50,22 +49,29 @@ def load_experimental(num_labels):
     return model
 
 
-def load_tokenizer(BASE_PATH):
-    tokenizer = BertTokenizer.from_pretrained(BASE_PATH, local_files_only=True)
+def load_tokenizer(args):
+    tokenizer = BertTokenizer.from_pretrained(
+        join(args["DATA_PATH"], "model_files/bert-base-uncased"), local_files_only=True
+    )
     return tokenizer
 
 
 if __name__ == "__main__":
     args = {
         "max_seq_length": 512,
-        "num_train_epochs": 4.0,
-        "train_batch_size": 32,
-        "eval_batch_size": 32,
-        "learning_rate": 3e-5,
+        "num_train_epochs": 2,
+        "train_batch_size": 12,
+        "eval_batch_size": 12,
+        "learning_rate": 1e-1,
         "warmup_proportion": 0.1,
         "seed": 0,
         "do_train": True,
+        "do_eval": True,
+        "save_checkpoints": False,
         "use_parents": True,
+        "DATA_PATH": "data",
+        # "DATA_PATH": "/content/gdrive/MyDrive/bert-for-hmltc/data"
+        "device": "cpu",
     }
 
     random.seed(args["seed"])
@@ -73,19 +79,20 @@ if __name__ == "__main__":
     torch.manual_seed(args["seed"])
 
     logger.info("Initializing…")
-    BASE_PATH = "data/model_files/bert-base-uncased"
-    tokenizer = load_tokenizer(BASE_PATH)
-    processor = MultiLabelTextProcessor(tokenizer, logger, "topic_list.json")
-    model = load_baseline(len(processor.labels), BASE_PATH)
+    tokenizer = load_tokenizer(args)
+    processor = TextProcessor(args, tokenizer, logger, "topic_list.json")
+    model = load_baseline(args, len(processor.labels))
 
     if args["do_train"]:
         logger.info("Training…")
         trainer = ModelTrainer(args, processor, model, logger)
-        trainer.prepare_training_data("dev_raw.pkl")
-        # trainer.train()
-
-    # logger.info("Evaluating…")
-    # evaluator = ModelEvaluator(args, processor, model, logger)
-    # evaluator.prepare_eval_data("test_sub.csv", "test_sub_parent_labels.csv")
-    # results = evaluator.evaluate()
-    # print(results)
+        trainer.prepare_training_data("test_raw.pkl")
+        if args["do_eval"]:
+            trainer.evaluator.prepare_eval_data("dev_raw.pkl")
+        trainer.train()
+    else:
+        logger.info("Evaluating…")
+        evaluator = ModelEvaluator(args, processor, model, logger)
+        evaluator.prepare_eval_data("dev_raw.pkl")
+        results = evaluator.evaluate()
+        print(results)

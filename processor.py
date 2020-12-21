@@ -42,16 +42,16 @@ class InputFeatures(object):
         self.label_ids = label_ids
 
 
-class MultiLabelTextProcessor:
+class TextProcessor:
     """Class for processing and transforming data to be used as input to the
     classifiers."""
 
-    def __init__(self, tokenizer, logger, labels):
+    def __init__(self, args, tokenizer, logger, labels):
         self.tokenizer = tokenizer
         self.logger = logger
 
-        self.data_dir = "data/dataframes"
-        with open(join("data", labels), "r") as f:
+        self.data_dir = join(args["DATA_PATH"], "dataframes")
+        with open(join(args["DATA_PATH"], labels), "r") as f:
             self.labels = json.load(f)
 
     def _create_examples(self, df, set_type, parent_labels_df=None):

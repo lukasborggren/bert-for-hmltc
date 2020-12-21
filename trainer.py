@@ -1,8 +1,11 @@
+import torch
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader
 
 from transformers import AdamW, get_linear_schedule_with_warmup
 from tqdm import tqdm
+
+from evaluator import ModelEvaluator
 
 
 class ModelTrainer:
@@ -14,12 +17,14 @@ class ModelTrainer:
         self.model = model
         self.logger = logger
 
-        self.device = "cpu"
         self.train_dataloader: DataLoader
         self.num_train_steps: int
 
         self.optimizer: AdamW
         self.scheduler: LambdaLR
+
+        if args["do_eval"]:
+            self.evaluator = ModelEvaluator(args, processor, model, logger)
 
     def prepare_training_data(self, file_name):
         """Creates a PyTorch Dataloader from a CSV file, which is used
@@ -80,7 +85,8 @@ class ModelTrainer:
 
     def train(self):
         """Performs model training using labeled data."""
-        self.model.to(self.device)
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model.to(device)
         self.load_optimizer()
         self.load_scheduler()
 
@@ -90,9 +96,9 @@ class ModelTrainer:
         for i_ in tqdm(range(int(self.args["num_train_epochs"])), desc="Epoch"):
             tr_loss, nb_tr_steps = 0, 0
 
-            for step, batch in enumerate(tqdm(self.train_dataloader, desc="Iteration")):
-                batch = tuple(t.to(self.device) for t in batch)
-                input_ids, input_mask, segment_ids, label_ids, parent_labels = batch
+            for step, batch in enumerate(tqdm(self.train_dataloader, desc="Batch")):
+                batch = tuple(t.to(device) for t in batch)
+                input_ids, input_mask, segment_ids, label_ids = batch
 
                 # Forward pass, compute loss for prediction
                 outputs = self.model(input_ids, segment_ids, input_mask, label_ids)
@@ -112,5 +118,31 @@ class ModelTrainer:
             self.logger.info(
                 f"Learning rate after epoch {i_+1}: {self.scheduler.get_last_lr()[0]}"
             )
+            if self.args["do_eval"]:
+                self.logger.info(
+                    f"Validation metrics after epoch {i_+1}: {self.evaluator.evaluate()}"
+                )
 
-        self.model.save()
+            if self.args["save_checkpoints"]:
+                self._save_checkpoint(i_ + 1)
+
+        # self._save_model()
+
+    def _save_checkpoint(self, epoch):
+        """Saves a checkpoint when epoch finishes"""
+        state = {
+            "epoch": epoch,
+            "model": self.model.state_dict(),
+            "optimizer": self.optimizer.state_dict(),
+        }
+
+        output_model_file = f"data/model_files/epoch_{epoch}.ckpt"
+        torch.save(state, output_model_file)
+
+    def _save_model(self):
+        """Saves the model as a binary file."""
+        model_to_save = (
+            self.model.module if hasattr(self, "module") else self.model
+        )  # Only save the model itself
+        output_model_file = "data/model_files/finetuned_pytorch_model.bin"
+        torch.save(model_to_save.state_dict(), output_model_file)

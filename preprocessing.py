@@ -41,8 +41,8 @@ def create_topic_list():
     return load_topic_list()
 
 
-def load_topic_list():
-    with open("data/topic_list.json", "r") as f:
+def load_topic_list(BASE_PATH):
+    with open(join(BASE_PATH, "topic_list.json"), "r") as f:
         topic_list = json.load(f)
     return topic_list
 
@@ -94,7 +94,6 @@ def load_data(dir, topic_list, use_parents):
                 if use_parents:
                     topics[level].append(all_t)
                 else:
-                    all_t = to_ohe(all_t, num_topics)
                     if level == 0:
                         topics.append(all_t)
                     else:
@@ -105,28 +104,37 @@ def load_data(dir, topic_list, use_parents):
     if use_parents:
         data = transform_data(blurbs, topics, num_topics)
     else:
-        data = {"topics": topics, "blurb": blurbs}
+        ohe_topics = []
+        for t in topics:
+            ohe_topics.append(to_ohe(t, num_topics))
+        data = {"topics": ohe_topics, "blurb": blurbs}
 
     return pd.DataFrame(data)
 
 
 # topic_list = create_topic_list()
-topic_list = load_topic_list()
-data_dir = "data"
-use_parents = True
+BASE_PATH = "data"
+topic_list = load_topic_list(BASE_PATH)
+use_parents = False
 
 print("Creating…")
 train = load_data(
-    join(data_dir, "BlurbGenreCollection_EN_train.txt"), topic_list, use_parents
+    join(BASE_PATH, "BlurbGenreCollection_EN_train.txt"), topic_list, use_parents
 )
 dev = load_data(
-    join(data_dir, "BlurbGenreCollection_EN_dev.txt"), topic_list, use_parents
+    join(BASE_PATH, "BlurbGenreCollection_EN_dev.txt"), topic_list, use_parents
 )
 test = load_data(
-    join(data_dir, "BlurbGenreCollection_EN_test.txt"), topic_list, use_parents
+    join(BASE_PATH, "BlurbGenreCollection_EN_test.txt"), topic_list, use_parents
 )
 
+# train = load_data(join(BASE_PATH, "dummy_train.txt"), topic_list, use_parents)
+# test = load_data(join(BASE_PATH, "dummy_train.txt"), topic_list, use_parents)
+# print(train)
+
+
 print("Saving…")
-train.to_pickle(join(data_dir, "dataframes/train_ext.pkl"))
-dev.to_pickle(join(data_dir, "dataframes/dev_ext.pkl"))
-test.to_pickle(join(data_dir, "dataframes/test_ext.pkl"))
+# Protocol 4 for Google Colab, not done for ext-files
+train.to_pickle(join(BASE_PATH, "dataframes/train_raw.pkl"), protocol=4)
+dev.to_pickle(join(BASE_PATH, "dataframes/dev_raw.pkl"), protocol=4)
+test.to_pickle(join(BASE_PATH, "dataframes/test_raw.pkl"), protocol=4)

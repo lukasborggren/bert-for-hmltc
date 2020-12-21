@@ -7,7 +7,7 @@ from torch.nn import Dropout, Linear, BCEWithLogitsLoss
 
 
 class BertBaseline(BertForSequenceClassification):
-    def __init__(self, config, num_labels=2):
+    def __init__(self, config):
         super(BertBaseline, self).__init__(config)
         self.num_labels = config.num_labels
         self.bert = BertModel(config)
@@ -65,15 +65,6 @@ class BertBaseline(BertForSequenceClassification):
     def unfreeze_bert_encoder(self):
         for param in self.bert.encoder.parameters():
             param.requires_grad = True
-
-    def save(self):
-        """Saves the model as a binary file."""
-        model_to_save = (
-            self.module if hasattr(self, "module") else self
-        )  # Only save the model itself
-        d = date.today().strftime("%Y-%m-%d")
-        output_model_file = f"mltc/data/model_files/finetuned_{d}_pytorch_model.bin"
-        torch.save(model_to_save.state_dict(), output_model_file)
 
 
 class BertExperimental(BertBaseline):
