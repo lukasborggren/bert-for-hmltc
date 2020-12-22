@@ -1,14 +1,12 @@
-from datetime import date
-
-from transformers import BertForSequenceClassification, BertModel, BertLayer
+from transformers import BertForSequenceClassification, BertModel
 
 import torch
-from torch.nn import Dropout, Linear, BCEWithLogitsLoss
+from torch.nn import Dropout, Linear, Sequential, BCEWithLogitsLoss, ReLU
 
 
-class BertBaseline(BertForSequenceClassification):
+class BertBigBang(BertForSequenceClassification):
     def __init__(self, config):
-        super(BertBaseline, self).__init__(config)
+        super(BertBigBang, self).__init__(config)
         self.num_labels = config.num_labels
         self.bert = BertModel(config)
         self.dropout = Dropout(config.hidden_dropout_prob)
@@ -33,12 +31,9 @@ class BertBaseline(BertForSequenceClassification):
             head_mask=head_mask,
         )
         pooled_output = outputs[1]
-
-        pooled_output = self.dropout(pooled_output)
-        logits = self.classifier(pooled_output)
-
-        # add hidden states and attention if they are here
-        outputs = (logits,) + outputs[2:]
+        dropout_output = self.dropout(pooled_output)
+        logits = self.classifier(dropout_output)
+        outputs = (logits,)
 
         if labels is not None:
             loss_fct = BCEWithLogitsLoss()
@@ -48,7 +43,7 @@ class BertBaseline(BertForSequenceClassification):
             )
             outputs = (loss,) + outputs
 
-        return outputs  # (loss), logits, (hidden_states), (attentions)
+        return outputs  # (loss), logits
 
     def freeze_bert_embeddings(self):
         for param in self.bert.embeddings.parameters():
@@ -67,17 +62,54 @@ class BertBaseline(BertForSequenceClassification):
             param.requires_grad = True
 
 
-class BertExperimental(BertBaseline):
-    """A subclass that freezes the layers from a pretrained classifier whilst adding
-    an additional transformer block that is finetuned during training.
+class BertIterative(BertForSequenceClassification):
+    def __init__(self, config):
+        super(BertIterative, self).__init__(config)
+        config.update({"mlp_size": 1024})
 
-    The size of a saved model (without the base blocks) is ~28.4 MB.
-    """
-
-    def __init__(self, config, num_labels=2):
-        super(BertExperimental, self).__init__(config)
+        self.num_labels = config.num_labels
         self.bert = BertModel(config)
-        self.freeze_bert_embeddings()
-        self.freeze_bert_encoder()
-        self.bert.encoder.add_module("12", BertLayer(config))
+        self.dropout = Dropout(config.hidden_dropout_prob)
+        self.mlp = Sequential(
+            Linear(config.hidden_size + config.num_labels, config.mlp_size),
+            ReLU(),
+            Linear(config.mlp_size, config.mlp_size),
+            ReLU(),
+        )
+        self.classifier = Linear(config.mlp_size, config.num_labels)
         self.apply(self._init_weights)
+
+    def forward(
+        self,
+        input_ids,
+        token_type_ids=None,
+        attention_mask=None,
+        labels=None,
+        position_ids=None,
+        head_mask=None,
+        parent_labels=None,
+    ):
+
+        outputs = self.bert(
+            input_ids,
+            position_ids=position_ids,
+            token_type_ids=token_type_ids,
+            attention_mask=attention_mask,
+            head_mask=head_mask,
+        )
+        pooled_output = outputs[1]
+        dropout_output = self.dropout(pooled_output)
+        concat_output = torch.cat((dropout_output, parent_labels), dim=1)
+        mlp_output = self.mlp(concat_output)
+        logits = self.classifier(mlp_output)
+        outputs = (logits,)
+
+        if labels is not None:
+            loss_fct = BCEWithLogitsLoss()
+
+            loss = loss_fct(
+                logits.view(-1, self.num_labels), labels.view(-1, self.num_labels)
+            )
+            outputs = (loss,) + outputs
+
+        return outputs  # (loss), logits

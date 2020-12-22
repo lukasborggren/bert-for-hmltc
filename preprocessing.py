@@ -41,8 +41,8 @@ def create_topic_list():
     return load_topic_list()
 
 
-def load_topic_list(BASE_PATH):
-    with open(join(BASE_PATH, "topic_list.json"), "r") as f:
+def load_topic_list(DATA_PATH):
+    with open(join(DATA_PATH, "topic_list.json"), "r") as f:
         topic_list = json.load(f)
     return topic_list
 
@@ -56,14 +56,14 @@ def to_ohe(indexes, num_topics):
 
 def transform_data(blurbs, topics, num_topics):
     rows_list = []
-    for i in tqdm(range(len(blurbs)), "Book"):
+    for i in tqdm(range(len(blurbs)), desc="Book", colour="green"):
         for j in range(3, -1, -1):
-            if topics[j][i]:
+            if topics[j][i] or (j != 0 and topics[j - 1][i]):
                 parent_cats = [cat for k in range(j) for cat in topics[k][i]]
                 row = {
+                    "blurb": blurbs[i],
                     "topics": to_ohe(topics[j][i], num_topics),
                     "parent_topics": to_ohe(parent_cats, num_topics),
-                    "blurb": blurbs[i],
                 }
                 rows_list.append(row)
 
@@ -107,34 +107,38 @@ def load_data(dir, topic_list, use_parents):
         ohe_topics = []
         for t in topics:
             ohe_topics.append(to_ohe(t, num_topics))
-        data = {"topics": ohe_topics, "blurb": blurbs}
+        data = {"blurb": blurbs, "topics": ohe_topics}
 
     return pd.DataFrame(data)
 
 
 # topic_list = create_topic_list()
-BASE_PATH = "data"
-topic_list = load_topic_list(BASE_PATH)
-use_parents = False
+DATA_PATH = "data"
+topic_list = load_topic_list(DATA_PATH)
+use_parents = True
 
 print("Creating…")
 train = load_data(
-    join(BASE_PATH, "BlurbGenreCollection_EN_train.txt"), topic_list, use_parents
+    join(DATA_PATH, "BlurbGenreCollection_EN_train.txt"), topic_list, use_parents
 )
 dev = load_data(
-    join(BASE_PATH, "BlurbGenreCollection_EN_dev.txt"), topic_list, use_parents
+    join(DATA_PATH, "BlurbGenreCollection_EN_dev.txt"), topic_list, use_parents
 )
 test = load_data(
-    join(BASE_PATH, "BlurbGenreCollection_EN_test.txt"), topic_list, use_parents
+    join(DATA_PATH, "BlurbGenreCollection_EN_test.txt"), topic_list, use_parents
 )
 
-# train = load_data(join(BASE_PATH, "dummy_train.txt"), topic_list, use_parents)
-# test = load_data(join(BASE_PATH, "dummy_train.txt"), topic_list, use_parents)
-# print(train)
-
+# train = load_data(join(DATA_PATH, "dummy_train.txt"), topic_list, use_parents)
+# test = load_data(join(DATA_PATH, "dummy_train.txt"), topic_list, use_parents)
 
 print("Saving…")
 # Protocol 4 for Google Colab, not done for ext-files
-train.to_pickle(join(BASE_PATH, "dataframes/train_raw.pkl"), protocol=4)
-dev.to_pickle(join(BASE_PATH, "dataframes/dev_raw.pkl"), protocol=4)
-test.to_pickle(join(BASE_PATH, "dataframes/test_raw.pkl"), protocol=4)
+train.to_pickle(join(DATA_PATH, "dataframes/train_ext.pkl"), protocol=4)
+dev.to_pickle(join(DATA_PATH, "dataframes/dev_ext.pkl"), protocol=4)
+test.to_pickle(join(DATA_PATH, "dataframes/test_ext.pkl"), protocol=4)
+
+"""
+Both split 64%/16%/20% into train/dev/test
+Raw total: 91,892
+Extended total: 306,231
+"""

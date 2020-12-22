@@ -1,12 +1,13 @@
 import logging
 import random
+import os
 from os.path import join
 
 import numpy as np
 import torch
 from transformers import BertTokenizer
 
-from models import BertBaseline, BertExperimental
+from models import BertBigBang, BertIterative
 from processor import TextProcessor
 
 from trainer import ModelTrainer
@@ -21,30 +22,24 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def load_baseline(args, num_labels):
+def create_baseline(args, num_labels):
     MODEL_PATH = join(args["DATA_PATH"], "model_files/bert-base-uncased")
     config = join(MODEL_PATH, "config.json")
     model_state_dict = torch.load(join(MODEL_PATH, "pytorch_model.bin"))
-    model = BertBaseline.from_pretrained(
+    model = BertBigBang.from_pretrained(
         config, num_labels=num_labels, state_dict=model_state_dict
     )
 
     return model
 
 
-def load_experimental(num_labels):
-    DATA_PATH = "mltc/data/model_files/"
-    config = DATA_PATH + "config.json"
-    model_state_dict = torch.load(DATA_PATH + "finetuned_2020-08-03_pytorch_model.bin")
-    del model_state_dict["classifier.weight"]
-    del model_state_dict["classifier.bias"]
-
-    model = BertExperimental.from_pretrained(
+def create_experimental(args, num_labels):
+    MODEL_PATH = join(args["DATA_PATH"], "model_files/bert-base-uncased")
+    config = join(MODEL_PATH, "config.json")
+    model_state_dict = torch.load(join(MODEL_PATH, "pytorch_model.bin"))
+    model = BertIterative.from_pretrained(
         config, num_labels=num_labels, state_dict=model_state_dict
     )
-
-    print(model.modules)
-    [print(name, param.requires_grad) for name, param in model.named_parameters()]
 
     return model
 
@@ -56,23 +51,41 @@ def load_tokenizer(args):
     return tokenizer
 
 
+def prepare_data(args, processor, file_name, set_type):
+    examples = processor.get_examples(file_name, set_type)
+
+    num_train_steps = None
+    if set_type == "train":
+        num_train_steps = int(
+            len(examples) / args["batch_size"] * args["num_train_epochs"]
+        )
+
+    features = processor.convert_examples_to_features(examples)
+    dataloader = processor.pack_features_in_dataloader(features, set_type)
+
+    return dataloader, num_train_steps
+
+
 if __name__ == "__main__":
     args = {
         "max_seq_length": 512,
-        "num_train_epochs": 2,
-        "train_batch_size": 12,
-        "eval_batch_size": 12,
-        "learning_rate": 1e-1,
+        "num_train_epochs": 4,
+        "batch_size": 15,
+        "learning_rate": 3e-5,
         "warmup_proportion": 0.1,
         "seed": 0,
         "do_train": True,
         "do_eval": True,
-        "save_checkpoints": False,
-        "use_parents": True,
-        "DATA_PATH": "data",
-        # "DATA_PATH": "/content/gdrive/MyDrive/bert-for-hmltc/data"
-        "device": "cpu",
+        "save_checkpoints": True,
+        "use_parents": False,
+        "device": torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+        "DATA_PATH": str,
     }
+
+    if os.environ["HOME"] == "/root":
+        args["DATA_PATH"] = "/content/gdrive/MyDrive/bert-for-hmltc/data"
+    else:
+        args["DATA_PATH"] = "data"
 
     random.seed(args["seed"])
     np.random.seed(args["seed"])
@@ -81,18 +94,30 @@ if __name__ == "__main__":
     logger.info("Initializing…")
     tokenizer = load_tokenizer(args)
     processor = TextProcessor(args, tokenizer, logger, "topic_list.json")
-    model = load_baseline(args, len(processor.labels))
+
+    if args["use_parents"]:
+        model = create_experimental(args, len(processor.labels))
+    else:
+        model = create_baseline(args, len(processor.labels))
 
     if args["do_train"]:
-        logger.info("Training…")
-        trainer = ModelTrainer(args, processor, model, logger)
-        trainer.prepare_training_data("test_raw.pkl")
+        trainer = ModelTrainer(args, model, logger)
+
+        logger.info("Loading data…")
+        trainer.dataloader, trainer.num_train_steps = prepare_data(
+            args, processor, "train_raw.pkl", "train"
+        )
         if args["do_eval"]:
-            trainer.evaluator.prepare_eval_data("dev_raw.pkl")
+            trainer.evaluator.dataloader, _ = prepare_data(
+                args, processor, "dev_raw.pkl", "dev"
+            )
+
+        logger.info("Training…")
         trainer.train()
+
     else:
+        evaluator = ModelEvaluator(args, model, logger)
+        logger.info("Loading data…")
+        evaluator.dataloader, _ = prepare_data(args, processor, "test_raw.pkl", "test")
         logger.info("Evaluating…")
-        evaluator = ModelEvaluator(args, processor, model, logger)
-        evaluator.prepare_eval_data("dev_raw.pkl")
         results = evaluator.evaluate()
-        print(results)

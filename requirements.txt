@@ -1,8 +1,8 @@
-tqdm
-transformers
-numpy
 torch
-scipy
 pandas
+transformers
+tqdm
+termcolor
+numpy
 beautifulsoup4
 scikit_learn

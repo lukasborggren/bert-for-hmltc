@@ -28,18 +28,20 @@ class InputExample(object):
         self.text_a = text_a
         self.text_b = text_b  # Not used
         self.labels = labels
+        self.parent_labels = parent_labels
 
 
 class InputFeatures(object):
     """A single set of features of data."""
 
     def __init__(
-        self, input_ids, input_mask, segment_ids, label_ids, parent_labels=None
+        self, input_ids, input_mask, segment_ids, label_ids, parent_label_ids=None
     ):
         self.input_ids = input_ids
         self.input_mask = input_mask
         self.segment_ids = segment_ids
         self.label_ids = label_ids
+        self.parent_label_ids = parent_label_ids
 
 
 class TextProcessor:
@@ -47,6 +49,7 @@ class TextProcessor:
     classifiers."""
 
     def __init__(self, args, tokenizer, logger, labels):
+        self.args = args
         self.tokenizer = tokenizer
         self.logger = logger
 
@@ -54,24 +57,37 @@ class TextProcessor:
         with open(join(args["DATA_PATH"], labels), "r") as f:
             self.labels = json.load(f)
 
-    def _create_examples(self, df, set_type, parent_labels_df=None):
+    def _create_examples(self, df, set_type):
         """Creates examples for the training and dev sets."""
         examples = []
         for (i, row) in enumerate(df.values):
+            input_example = None
             guid = i
-            text_a = row[1]
+            text_a = row[0]
+
             if set_type != "test":
-                labels = row[0]
+                labels = row[1]
+                if self.args["use_parents"] and set_type == "train":
+                    parent_labels = row[2]
+                    input_example = InputExample(
+                        guid=guid,
+                        text_a=text_a,
+                        labels=labels,
+                        parent_labels=parent_labels,
+                    )
             else:
                 labels = []
-            input_example = InputExample(guid=guid, text_a=text_a, labels=labels)
+
+            if not input_example:
+                input_example = InputExample(guid=guid, text_a=text_a, labels=labels)
+
             examples.append(input_example)
         return examples
 
     def get_examples(self, file_name, set_type):
         """Gets input data from pickle and loads it in a Pandas DataFrame."""
-        data_df = pd.read_pickle(join(self.data_dir, file_name))
-        return self._create_examples(data_df, set_type)
+        df = pd.read_pickle(join(self.data_dir, file_name))
+        return self._create_examples(df, set_type)
 
     # The two functions below are heavily inspired by their counterparts in:
     # https://github.com/google-research/bert/blob/master/extract_features.py
@@ -91,9 +107,10 @@ class TextProcessor:
             else:
                 tokens_b.pop()
 
-    def convert_examples_to_features(self, examples, max_seq_length):
+    def convert_examples_to_features(self, examples):
         """Loads a data file into a list of `InputBatch`s."""
         features = []
+        max_seq_length = self.args["max_seq_length"]
         for (ex_index, example) in enumerate(examples):
             tokens_a = self.tokenizer.tokenize(example.text_a)
 
@@ -150,9 +167,14 @@ class TextProcessor:
             assert len(input_mask) == max_seq_length
             assert len(segment_ids) == max_seq_length
 
-            labels_ids = []
+            label_ids = []
             for label in example.labels:
-                labels_ids.append(float(label))
+                label_ids.append(float(label))
+
+            if example.parent_labels:
+                parent_label_ids = []
+                for label in example.parent_labels:
+                    parent_label_ids.append(float(label))
 
             if ex_index < 0:
                 self.logger.info("*** Example ***")
@@ -167,19 +189,31 @@ class TextProcessor:
                 self.logger.info(
                     "segment_ids: %s" % " ".join([str(x) for x in segment_ids])
                 )
-                self.logger.info("label: %s (id = %s)" % (example.labels, labels_ids))
+                self.logger.info("label: %s (id = %s)" % (example.labels, label_ids))
+                self.logger.info(
+                    "label: %s (id = %s)" % (example.parent_labels, parent_label_ids)
+                )
 
-            input_features = InputFeatures(
-                input_ids=input_ids,
-                input_mask=input_mask,
-                segment_ids=segment_ids,
-                label_ids=labels_ids,
-            )
+            if example.parent_labels:
+                input_features = InputFeatures(
+                    input_ids=input_ids,
+                    input_mask=input_mask,
+                    segment_ids=segment_ids,
+                    label_ids=label_ids,
+                    parent_label_ids=parent_label_ids,
+                )
+            else:
+                input_features = InputFeatures(
+                    input_ids=input_ids,
+                    input_mask=input_mask,
+                    segment_ids=segment_ids,
+                    label_ids=label_ids,
+                )
             features.append(input_features)
 
         return features
 
-    def pack_features_in_dataloader(self, features, batch_size, set_type):
+    def pack_features_in_dataloader(self, features, set_type):
         """Transforms input features to tensors and packs them in a PyTorch
         DataLoader."""
         all_input_ids = torch.tensor([f.input_ids for f in features], dtype=torch.long)
@@ -194,20 +228,47 @@ class TextProcessor:
             all_label_ids = torch.tensor(
                 [f.label_ids for f in features], dtype=torch.float
             )
+            if self.args["use_parents"]:
+                if features[0].parent_label_ids:  # Using parents train
+                    all_parent_label_ids = torch.tensor(
+                        [f.parent_label_ids for f in features], dtype=torch.float
+                    )
+                else:  # Using parents dev
+                    shape = (len(features), len(self.labels))
+                    all_parent_label_ids = torch.zeros(shape, dtype=torch.float)
+                data = TensorDataset(
+                    all_input_ids,
+                    all_input_mask,
+                    all_segment_ids,
+                    all_label_ids,
+                    all_parent_label_ids,
+                )
+            else:  # Not using parents train & dev
+                data = TensorDataset(
+                    all_input_ids, all_input_mask, all_segment_ids, all_label_ids
+                )
+        elif self.args["use_parents"]:  # Using parents test
+            shape = (len(features), len(self.labels))
+            all_parent_label_ids = torch.zeros(shape, dtype=torch.float)
             data = TensorDataset(
                 all_input_ids,
                 all_input_mask,
                 all_segment_ids,
-                all_label_ids,
+                all_parent_label_ids,
             )
-
-        else:
+        else:  # Not using parents test
             data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids)
 
-        if set_type != "train":
-            sampler = SequentialSampler(data)
-        else:
+        if set_type != "test":
             sampler = RandomSampler(data)
-        dataloader = DataLoader(data, sampler=sampler, batch_size=batch_size)
+        else:
+            sampler = SequentialSampler(data)
+        dataloader = DataLoader(
+            data, sampler=sampler, batch_size=self.args["batch_size"]
+        )
 
         return dataloader
+
+
+# TODO: Implement grid search for hyperparameter tuning
+# TODO: Check if training can be parallelized in Colab
