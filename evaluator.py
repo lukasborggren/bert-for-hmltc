@@ -1,11 +1,10 @@
+from os.path import join
+import pickle
+
 import numpy as np
-from sklearn.metrics import f1_score, recall_score, precision_score
+from sklearn.metrics import f1_score, recall_score, precision_score, accuracy_score
 import torch
 from torch.utils.data import DataLoader
-
-
-def accuracy_score(true, pred):
-    return np.mean(np.mean((pred == true), axis=1))
 
 
 class ModelEvaluator:
@@ -18,11 +17,44 @@ class ModelEvaluator:
 
         self.dataloader: DataLoader
 
+        if args["use_parents"]:
+            with open(join(args["DATA_PATH"], "children_dict.pkl"), "rb") as f:
+                self.children_dict = pickle.load(f)
+            self.parent_dict = {1: (0, 7), 2: (7, 59), 3: (59, 136)}
+
     def _handle_out(self, outputs):
         tmp_loss, logits = outputs[:2]
         logits = logits.sigmoid()
-        logits = (logits > 0.5).float()
+        logits = (logits > self.args["threshold"]).float()
         return tmp_loss, logits
+
+    def _get_pred(self, i, parent_labels, logits, zeros):
+        tmp = torch.clone(zeros)
+        if i == 0:
+            ind = self.children_dict[-1]
+            tmp[:, ind[0] : ind[1]] = logits[:, ind[0] : ind[1]]
+            labels = tmp.to(self.args["device"])
+        else:
+            ind_range = self.parent_dict[i]
+            parent_ind = (parent_labels == 1.0).nonzero()
+            inds = [None] * list(logits.shape)[0]
+            for _, x in enumerate(parent_ind.detach().cpu().numpy()):
+                in_range = ind_range[0] <= x[1] < ind_range[1]
+                if x[1] in self.children_dict and in_range:
+                    if inds[x[0]]:
+                        inds[x[0]].append(self.children_dict[x[1]])
+                    else:
+                        inds[x[0]] = [self.children_dict[x[1]]]
+            for x in inds:
+                if x:
+                    for ind in x:
+                        if ind[1] == list(logits.shape)[1]:
+                            tmp[:, ind[0] :] = logits[:, ind[0] :]
+                        else:
+                            tmp[:, ind[0] : ind[1]] = logits[:, ind[0] : ind[1]]
+            labels = parent_labels + tmp.to(self.args["device"])
+
+        return labels
 
     def evaluate(self):
         """Evaluates a classifier using labeled data.
@@ -37,7 +69,9 @@ class ModelEvaluator:
 
             if self.args["use_parents"]:
                 input_ids, input_mask, segment_ids, label_ids, parent_labels = batch
-                for i_ in range(4):
+                tmp_loss = torch.Tensor([0]).to(self.args["device"])
+                zeros = torch.zeros(parent_labels.shape, dtype=torch.float)
+                for i in range(4):
                     with torch.no_grad():
                         outputs = self.model(
                             input_ids,
@@ -46,8 +80,12 @@ class ModelEvaluator:
                             label_ids,
                             parent_labels=parent_labels,
                         )
-                    tmp_loss, logits = self._handle_out(outputs)
+                    iter_loss, tmp_logits = self._handle_out(outputs)
+                    tmp_loss += iter_loss
+                    logits = self._get_pred(i, parent_labels, tmp_logits, zeros)
                     parent_labels = logits
+
+                tmp_loss = torch.mul(tmp_loss, 1 / 4)
             else:
                 input_ids, input_mask, segment_ids, label_ids = batch
                 with torch.no_grad():
@@ -66,10 +104,9 @@ class ModelEvaluator:
                     (labels, label_ids.detach().cpu().numpy()), axis=0
                 )
 
-            loss.append(tmp_loss.mean().item())
+            loss.append(tmp_loss.item())
 
         f1 = f1_score(labels, pred, average="micro", zero_division=0)
-        f1_macro = f1_score(labels, pred, average="macro", zero_division=0)
         recall = recall_score(labels, pred, average="micro")
         precision = precision_score(labels, pred, average="micro")
         accuracy = accuracy_score(labels, pred)
@@ -78,7 +115,6 @@ class ModelEvaluator:
             "loss": sum(loss) / len(loss),
             "accuracy": accuracy,
             "f1": f1,
-            "f1_macro": f1_macro,
             "precision": precision,
             "recall": recall,
         }

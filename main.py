@@ -72,12 +72,13 @@ if __name__ == "__main__":
         "num_train_epochs": 4,
         "batch_size": 15,
         "learning_rate": 3e-5,
+        "threshold": 0.5,
         "warmup_proportion": 0.1,
         "seed": 0,
         "do_train": True,
         "do_eval": True,
-        "save_checkpoints": True,
-        "use_parents": False,
+        "save_checkpoints": False,
+        "use_parents": True,
         "device": torch.device("cuda" if torch.cuda.is_available() else "cpu"),
         "DATA_PATH": str,
     }
@@ -105,7 +106,7 @@ if __name__ == "__main__":
 
         logger.info("Loading data…")
         trainer.dataloader, trainer.num_train_steps = prepare_data(
-            args, processor, "train_raw.pkl", "train"
+            args, processor, "test_ext.pkl", "train"
         )
         if args["do_eval"]:
             trainer.evaluator.dataloader, _ = prepare_data(

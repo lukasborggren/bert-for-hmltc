@@ -1,5 +1,6 @@
 import json
 from os.path import join
+import pickle
 
 from bs4 import BeautifulSoup
 import pandas as pd
@@ -7,22 +8,22 @@ from tqdm import tqdm
 
 
 def find_children(pairs, lvl, i):
-    for pair in pairs:
-        for top in lvl[i]:
-            if pair[0] == top:
+    for parent in lvl[i]:
+        for pair in pairs:
+            if pair[0] == parent:
                 lvl[i + 1].append(pair[1].strip())
     return lvl
 
 
 def create_topic_list():
     lvl0 = [
-        "Children’s Books",
-        "Classics",
-        "Fiction",
-        "Humor",
         "Nonfiction",
-        "Poetry",
+        "Fiction",
+        "Classics",
+        "Children’s Books",
         "Teen & Young Adult",
+        "Humor",
+        "Poetry",
     ]
 
     lvl = [lvl0, [], [], []]
@@ -38,13 +39,28 @@ def create_topic_list():
     with open("data/topic_list.json", "w") as f:
         json.dump(topic_list, f)
 
-    return load_topic_list()
+    return topic_list
 
 
 def load_topic_list(DATA_PATH):
     with open(join(DATA_PATH, "topic_list.json"), "r") as f:
         topic_list = json.load(f)
     return topic_list
+
+
+def create_children_dict():
+    with open("data/children.txt", "r") as f:
+        pairs = [line.split("\t") for line in f.readlines()]
+
+    children_dict = dict()
+
+    for pair in pairs:
+        children_dict.update({int(pair[0]): (int(pair[1]), int(pair[2].strip()))})
+
+    with open("data/children_dict.pkl", "wb") as f:
+        pickle.dump(children_dict, f, protocol=4)
+
+    return None
 
 
 def to_ohe(indexes, num_topics):
@@ -113,9 +129,10 @@ def load_data(dir, topic_list, use_parents):
 
 
 # topic_list = create_topic_list()
+# create_children_dict()
 DATA_PATH = "data"
 topic_list = load_topic_list(DATA_PATH)
-use_parents = True
+use_parents = False
 
 print("Creating…")
 train = load_data(
@@ -129,13 +146,13 @@ test = load_data(
 )
 
 # train = load_data(join(DATA_PATH, "dummy_train.txt"), topic_list, use_parents)
-# test = load_data(join(DATA_PATH, "dummy_train.txt"), topic_list, use_parents)
+# dev = load_data(join(DATA_PATH, "dummy_test.txt"), topic_list, use_parents)
 
 print("Saving…")
 # Protocol 4 for Google Colab, not done for ext-files
-train.to_pickle(join(DATA_PATH, "dataframes/train_ext.pkl"), protocol=4)
-dev.to_pickle(join(DATA_PATH, "dataframes/dev_ext.pkl"), protocol=4)
-test.to_pickle(join(DATA_PATH, "dataframes/test_ext.pkl"), protocol=4)
+train.to_pickle(join(DATA_PATH, "dataframes/train_raw.pkl"), protocol=4)
+dev.to_pickle(join(DATA_PATH, "dataframes/dev_raw.pkl"), protocol=4)
+test.to_pickle(join(DATA_PATH, "dataframes/test_raw.pkl"), protocol=4)
 
 """
 Both split 64%/16%/20% into train/dev/test
