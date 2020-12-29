@@ -5,10 +5,11 @@ import numpy as np
 from sklearn.metrics import f1_score, recall_score, precision_score, accuracy_score
 import torch
 from torch.utils.data import DataLoader
+from termcolor import colored
 
 
 class ModelEvaluator:
-    """Class for evaluating the text classification models."""
+    """Class for evaluating a model."""
 
     def __init__(self, args, model, logger):
         self.args = args
@@ -23,12 +24,15 @@ class ModelEvaluator:
             self.parent_dict = {1: (0, 7), 2: (7, 59), 3: (59, 136)}
 
     def _handle_out(self, outputs):
-        tmp_loss, logits = outputs[:2]
-        logits = logits.sigmoid()
-        logits = (logits > self.args["threshold"]).float()
-        return tmp_loss, logits
+        """Extracts loss and predicitons from model output."""
+        loss, logits = outputs[:2]
+        pred = logits.sigmoid()
+        pred = (pred > self.args["threshold"]).float()
+        return loss, pred
 
     def _get_pred(self, i, parent_labels, logits, zeros):
+        """Returns the model output corresponding to the correct parent labels
+        and hierarchy level."""
         tmp = torch.clone(zeros)
         if i == 0:
             ind = self.children_dict[-1]
@@ -56,11 +60,13 @@ class ModelEvaluator:
 
         return labels
 
-    def evaluate(self):
+    def evaluate(self, epoch=None):
         """Evaluates a classifier using labeled data.
-        Calculates and returns accuracy, precision, recall F1 score and ROC AUC.
+
+        Calculates and returns evaluation loss and micro-averaged precision, recall
+        and F1 score, as well as subset accuracy.
         """
-        loss = []
+        eval_loss = 0
         pred, labels = None, None
         self.model.eval()
 
@@ -69,7 +75,7 @@ class ModelEvaluator:
 
             if self.args["use_parents"]:
                 input_ids, input_mask, segment_ids, label_ids, parent_labels = batch
-                tmp_loss = torch.Tensor([0]).to(self.args["device"])
+                loss = torch.Tensor([0]).to(self.args["device"])
                 zeros = torch.zeros(parent_labels.shape, dtype=torch.float)
                 for i in range(4):
                     with torch.no_grad():
@@ -80,17 +86,17 @@ class ModelEvaluator:
                             label_ids,
                             parent_labels=parent_labels,
                         )
-                    iter_loss, tmp_logits = self._handle_out(outputs)
-                    tmp_loss += iter_loss
+                    tmp_loss, tmp_logits = self._handle_out(outputs)
+                    loss += tmp_loss
                     logits = self._get_pred(i, parent_labels, tmp_logits, zeros)
                     parent_labels = logits
 
-                tmp_loss = torch.mul(tmp_loss, 1 / 4)
+                loss = torch.mul(loss, 1 / 4)
             else:
                 input_ids, input_mask, segment_ids, label_ids = batch
                 with torch.no_grad():
                     outputs = self.model(input_ids, segment_ids, input_mask, label_ids)
-                tmp_loss, logits = self._handle_out(outputs)
+                loss, logits = self._handle_out(outputs)
 
             if pred is None:
                 pred = logits.detach().cpu().numpy()
@@ -104,36 +110,40 @@ class ModelEvaluator:
                     (labels, label_ids.detach().cpu().numpy()), axis=0
                 )
 
-            loss.append(tmp_loss.item())
+            eval_loss += loss.item()
 
+        eval_loss = eval_loss / len(self.dataloader)
+        accuracy = accuracy_score(labels, pred)
         f1 = f1_score(labels, pred, average="micro", zero_division=0)
         recall = recall_score(labels, pred, average="micro")
         precision = precision_score(labels, pred, average="micro")
-        accuracy = accuracy_score(labels, pred)
 
         result = {
-            "loss": sum(loss) / len(loss),
+            "loss": eval_loss,
             "accuracy": accuracy,
             "f1": f1,
             "precision": precision,
             "recall": recall,
         }
 
-        # with open("data/topic_list.json", "r") as f:
-        #     topic_list = json.load(f)
+        self.print_and_save(result, epoch)
 
-        # for row in pred:
-        #     topics = [topic_list[ind] for ind, ohe in enumerate(row) if ohe == 1.0]
-        #     print(len(topics))
-
-        # self.save_result(result)
         return result
 
-    def save_result(self, result):
-        """Saves the evaluation results as a text file."""
-        output_eval_file = "data/results/eval_results.txt"
+    def print_and_save(self, result, epoch):
+        """Prints and saves the evaluation result as a text file."""
+        if epoch:
+            output_eval_file = join(
+                self.args["DATA_PATH"],
+                f'results/{self.args["session_num"]}_eval_results_epoch_{epoch}.txt',
+            )
+        else:
+            output_eval_file = join(
+                self.args["DATA_PATH"],
+                f'results/{self.args["session_num"]}_eval_results.txt',
+            )
+
         with open(output_eval_file, "w") as writer:
-            self.logger.info("***** Eval results *****")
-            for key in sorted(result.keys()):
-                self.logger.info("  %s = %s", key, str(result[key]))
-                writer.write("%s = %s\n" % (key, str(result[key])))
+            for metric in result.keys():
+                self.logger.info(f"{metric.capitalize()} = {result[metric]}")
+                writer.write(f"{metric.capitalize()} = {result[metric]}\n")

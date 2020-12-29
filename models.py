@@ -22,7 +22,6 @@ class BertBigBang(BertForSequenceClassification):
         position_ids=None,
         head_mask=None,
     ):
-
         outputs = self.bert(
             input_ids,
             position_ids=position_ids,
@@ -37,29 +36,12 @@ class BertBigBang(BertForSequenceClassification):
 
         if labels is not None:
             loss_fct = BCEWithLogitsLoss()
-
             loss = loss_fct(
                 logits.view(-1, self.num_labels), labels.view(-1, self.num_labels)
             )
             outputs = (loss,) + outputs
 
         return outputs  # (loss), logits
-
-    def freeze_bert_embeddings(self):
-        for param in self.bert.embeddings.parameters():
-            param.requires_grad = False
-
-    def unfreeze_bert_embeddings(self):
-        for param in self.bert.embeddings.parameters():
-            param.requires_grad = True
-
-    def freeze_bert_encoder(self):
-        for param in self.bert.encoder.parameters():
-            param.requires_grad = False
-
-    def unfreeze_bert_encoder(self):
-        for param in self.bert.encoder.parameters():
-            param.requires_grad = True
 
 
 class BertIterative(BertForSequenceClassification):
@@ -89,7 +71,6 @@ class BertIterative(BertForSequenceClassification):
         head_mask=None,
         parent_labels=None,
     ):
-
         outputs = self.bert(
             input_ids,
             position_ids=position_ids,
@@ -106,7 +87,6 @@ class BertIterative(BertForSequenceClassification):
 
         if labels is not None:
             loss_fct = BCEWithLogitsLoss()
-
             loss = loss_fct(
                 logits.view(-1, self.num_labels), labels.view(-1, self.num_labels)
             )

@@ -7,6 +7,8 @@ import numpy as np
 import torch
 from transformers import BertTokenizer
 
+# import torch_xla.core.xla_model as xm
+
 from models import BertBigBang, BertIterative
 from processor import TextProcessor
 
@@ -68,19 +70,20 @@ def prepare_data(args, processor, file_name, set_type):
 
 if __name__ == "__main__":
     args = {
-        "max_seq_length": 512,
+        "max_seq_length": 350,
         "num_train_epochs": 4,
-        "batch_size": 15,
-        "learning_rate": 3e-5,
+        "batch_size": 26,
+        "learning_rate": 5e-5,
         "threshold": 0.5,
         "warmup_proportion": 0.1,
         "seed": 0,
         "do_train": True,
         "do_eval": True,
         "save_checkpoints": False,
-        "use_parents": True,
+        "use_parents": False,
         "device": torch.device("cuda" if torch.cuda.is_available() else "cpu"),
         "DATA_PATH": str,
+        "session_num": 3,
     }
 
     if os.environ["HOME"] == "/root":
@@ -96,6 +99,9 @@ if __name__ == "__main__":
     tokenizer = load_tokenizer(args)
     processor = TextProcessor(args, tokenizer, logger, "topic_list.json")
 
+    # dev = xm.xla_device()
+    # args["device"] = dev
+
     if args["use_parents"]:
         model = create_experimental(args, len(processor.labels))
     else:
@@ -106,7 +112,7 @@ if __name__ == "__main__":
 
         logger.info("Loading data…")
         trainer.dataloader, trainer.num_train_steps = prepare_data(
-            args, processor, "test_ext.pkl", "train"
+            args, processor, "train_raw.pkl", "train"
         )
         if args["do_eval"]:
             trainer.evaluator.dataloader, _ = prepare_data(
@@ -119,6 +125,6 @@ if __name__ == "__main__":
     else:
         evaluator = ModelEvaluator(args, model, logger)
         logger.info("Loading data…")
-        evaluator.dataloader, _ = prepare_data(args, processor, "test_raw.pkl", "test")
+        evaluator.dataloader, _ = prepare_data(args, processor, "test_raw.pkl", "dev")
         logger.info("Evaluating…")
-        results = evaluator.evaluate()
+        result = evaluator.evaluate()

@@ -31,31 +31,23 @@ class ModelTrainer:
         """Loads the AdamW optimizer used during training."""
         param_optimizer = list(self.model.named_parameters())
 
-        # Weight decay denotes the lambda in an L2 penalty added to the loss
+        # Excluded to reproduce the behaviour of the original optimizer.
         no_decay = ["bias", "LayerNorm.bias", "LayerNorm.weight"]
-        optimizer_grouped_parameters = [
-            {
-                "params": [
-                    p for n, p in param_optimizer if not any(nd in n for nd in no_decay)
-                ],
-                "weight_decay": 0.01,
-            },
-            {
-                "params": [
-                    p for n, p in param_optimizer if any(nd in n for nd in no_decay)
-                ],
-                "weight_decay": 0.0,
-            },
+        apply = [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)]
+        no_apply = [p for n, p in param_optimizer if any(nd in n for nd in no_decay)]
+        grouped_params = [
+            {"params": apply, "weight_decay": 0.01},
+            {"params": no_apply, "weight_decay": 0.0},
         ]
 
         self.optimizer = AdamW(
-            optimizer_grouped_parameters,
+            grouped_params,
             lr=self.args["learning_rate"],
             correct_bias=False,
         )
 
     def load_scheduler(self):
-        """Loads the scheduler which controls the learning rate during training."""
+        """Loads the scheduler controlling the learning rate during training."""
         self.scheduler = get_linear_schedule_with_warmup(
             self.optimizer,
             num_warmup_steps=self.args["warmup_proportion"] * self.num_train_steps,
@@ -68,25 +60,15 @@ class ModelTrainer:
         self.load_optimizer()
         self.load_scheduler()
 
-        global_step = 0
-
         for i in range(self.args["num_train_epochs"]):
-            tr_loss, nb_tr_steps = 0, 0
+            train_loss = 0
             self.model.train()
 
             for step, batch in enumerate(tqdm(self.dataloader, desc="Batch")):
-                self.optimizer.zero_grad()  # Set gradients of model parameters to zero
-
                 batch = tuple(t.to(self.args["device"]) for t in batch)
 
                 if self.args["use_parents"]:
-                    (
-                        input_ids,
-                        input_mask,
-                        segment_ids,
-                        label_ids,
-                        parent_labels,
-                    ) = batch
+                    input_ids, input_mask, segment_ids, label_ids, parent_labels = batch
                     outputs = self.model(
                         input_ids,
                         segment_ids,
@@ -100,30 +82,34 @@ class ModelTrainer:
                     outputs = self.model(input_ids, segment_ids, input_mask, label_ids)
 
                 loss = outputs[0]
+                # if step % 10 == 0:
+                #     print(loss.item())
+                # logits = outputs[1]
+                # logits = logits.sigmoid()
+                # pred = (logits > self.args["threshold"]).float()
+
+                # for j in range(len(label_ids)):
+                #     print([k for k, l in enumerate(label_ids[j, :]) if l == 1])
+                #     print([k for k, l in enumerate(pred[j, :]) if l == 1])
+                #     print("*" * 70)
 
                 # Backward pass, compute gradient of loss w.r.t. model parameters
                 loss.backward()
-
-                tr_loss += loss.item()
-                nb_tr_steps += 1
-                global_step += 1
+                train_loss += loss.item()
 
                 self.optimizer.step()  # Update model parameters
+                self.scheduler.step()  # Update learning rate schedule
+                self.optimizer.zero_grad()  # Set gradients of model parameters to zero
 
-            self.logger.info(
-                colored(f"***** Training epoch {i + 1} complete *****", "green")
-            )
-            self.logger.info(f"Training loss = {tr_loss / nb_tr_steps}")
+            self.logger.info(colored(f"TRAINING EPOCH {i + 1} COMPLETE", "green"))
+            self.logger.info(f"Training loss = {train_loss / len(self.dataloader)}")
             self.logger.info(f"Learning rate = {self.scheduler.get_last_lr()[0]}")
+
             if self.args["do_eval"]:
-                result = self.evaluator.evaluate()
-                for metric in result.keys():
-                    self.logger.info(f"{metric.capitalize()} = {result[metric]}")
+                self.evaluator.evaluate(i + 1)
 
             if self.args["save_checkpoints"]:
                 self._save_model(i + 1)
-
-            self.scheduler.step()  # Update learning rate schedule
 
         self._save_model()
 
@@ -136,11 +122,13 @@ class ModelTrainer:
                 "optimizer": self.optimizer.state_dict(),
             }
             output_model_file = join(
-                self.args["DATA_PATH"], f"model_files/epoch_{epoch}.ckpt"
+                self.args["DATA_PATH"],
+                f'model_files/{self.args["session_num"]}_epoch_{epoch}.ckpt',
             )
         else:
             state = self.model.state_dict()
             output_model_file = join(
-                self.args["DATA_PATH"], "model_files/finetuned_pytorch_model.bin"
+                self.args["DATA_PATH"],
+                f'model_files/{self.args["session_num"]}_finetuned_pytorch_model.bin',
             )
         torch.save(state, output_model_file)

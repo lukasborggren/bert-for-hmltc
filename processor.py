@@ -268,7 +268,3 @@ class TextProcessor:
         )
 
         return dataloader
-
-
-# TODO: Implement grid search for hyperparameter tuning
-# TODO: Check if training can be parallelized in Colab

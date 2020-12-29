@@ -135,24 +135,27 @@ topic_list = load_topic_list(DATA_PATH)
 use_parents = False
 
 print("Creating…")
-train = load_data(
-    join(DATA_PATH, "BlurbGenreCollection_EN_train.txt"), topic_list, use_parents
-)
-dev = load_data(
-    join(DATA_PATH, "BlurbGenreCollection_EN_dev.txt"), topic_list, use_parents
-)
-test = load_data(
-    join(DATA_PATH, "BlurbGenreCollection_EN_test.txt"), topic_list, use_parents
-)
+# train = load_data(
+#     join(DATA_PATH, "BlurbGenreCollection_EN_train.txt"), topic_list, use_parents
+# )
+# dev = load_data(
+#     join(DATA_PATH, "BlurbGenreCollection_EN_dev.txt"), topic_list, use_parents
+# )
+# test = load_data(
+#     join(DATA_PATH, "BlurbGenreCollection_EN_test.txt"), topic_list, use_parents
+# )
 
 # train = load_data(join(DATA_PATH, "dummy_train.txt"), topic_list, use_parents)
 # dev = load_data(join(DATA_PATH, "dummy_test.txt"), topic_list, use_parents)
-
-print("Saving…")
+df = load_data(join(DATA_PATH, "real_mock.txt"), topic_list, True)
+df.to_pickle(join(DATA_PATH, "dataframes/real_mock_ext.pkl"), protocol=4)
+for _, row in df.iterrows():
+    print(row[1])
+    print(row[2])
 # Protocol 4 for Google Colab, not done for ext-files
-train.to_pickle(join(DATA_PATH, "dataframes/train_raw.pkl"), protocol=4)
-dev.to_pickle(join(DATA_PATH, "dataframes/dev_raw.pkl"), protocol=4)
-test.to_pickle(join(DATA_PATH, "dataframes/test_raw.pkl"), protocol=4)
+# train.to_pickle(join(DATA_PATH, "dataframes/train_raw.pkl"), protocol=4)
+# dev.to_pickle(join(DATA_PATH, "dataframes/dev_raw.pkl"), protocol=4)
+# test.to_pickle(join(DATA_PATH, "dataframes/test_raw.pkl"), protocol=4)
 
 """
 Both split 64%/16%/20% into train/dev/test
