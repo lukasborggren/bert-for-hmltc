@@ -74,7 +74,7 @@ def transform_data(blurbs, topics, num_topics):
     rows_list = []
     for i in tqdm(range(len(blurbs)), desc="Book", colour="green"):
         for j in range(3, -1, -1):
-            if topics[j][i] or (j != 0 and topics[j - 1][i]):
+            if topics[j][i]:  # or (j != 0 and topics[j - 1][i]):
                 parent_cats = [cat for k in range(j) for cat in topics[k][i]]
                 row = {
                     "blurb": blurbs[i],
@@ -93,7 +93,6 @@ def load_data(dir, topic_list, use_parents):
 
     if use_parents:
         topics = [[], [], [], []]
-        # topics = {"d0": [], "d1": [], "d2": [], "d3": []}
     else:
         topics = []
 
@@ -132,33 +131,26 @@ def load_data(dir, topic_list, use_parents):
 # create_children_dict()
 DATA_PATH = "data"
 topic_list = load_topic_list(DATA_PATH)
-use_parents = False
+use_parents = True
 
 print("Creating…")
 # train = load_data(
 #     join(DATA_PATH, "BlurbGenreCollection_EN_train.txt"), topic_list, use_parents
 # )
-# dev = load_data(
-#     join(DATA_PATH, "BlurbGenreCollection_EN_dev.txt"), topic_list, use_parents
-# )
-# test = load_data(
-#     join(DATA_PATH, "BlurbGenreCollection_EN_test.txt"), topic_list, use_parents
-# )
+dev = load_data(
+    join(DATA_PATH, "BlurbGenreCollection_EN_dev.txt"), topic_list, use_parents
+)
+test = load_data(
+    join(DATA_PATH, "BlurbGenreCollection_EN_test.txt"), topic_list, use_parents
+)
 
-# train = load_data(join(DATA_PATH, "dummy_train.txt"), topic_list, use_parents)
-# dev = load_data(join(DATA_PATH, "dummy_test.txt"), topic_list, use_parents)
-df = load_data(join(DATA_PATH, "real_mock.txt"), topic_list, True)
-df.to_pickle(join(DATA_PATH, "dataframes/real_mock_ext.pkl"), protocol=4)
-for _, row in df.iterrows():
-    print(row[1])
-    print(row[2])
 # Protocol 4 for Google Colab, not done for ext-files
-# train.to_pickle(join(DATA_PATH, "dataframes/train_raw.pkl"), protocol=4)
-# dev.to_pickle(join(DATA_PATH, "dataframes/dev_raw.pkl"), protocol=4)
-# test.to_pickle(join(DATA_PATH, "dataframes/test_raw.pkl"), protocol=4)
+# train.to_pickle(join(DATA_PATH, "dataframes/train_ext.pkl"), protocol=4)
+dev.to_pickle(join(DATA_PATH, "dataframes/dev_ext.pkl"), protocol=4)
+test.to_pickle(join(DATA_PATH, "dataframes/test_ext.pkl"), protocol=4)
 
 """
-Both split 64%/16%/20% into train/dev/test
-Raw total: 91,892
-Extended total: 306,231
+Split 64%/16%/20% into train/dev/test
+Raw train: 58,715
+Extended train: 138,952
 """

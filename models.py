@@ -1,7 +1,6 @@
-from transformers import BertForSequenceClassification, BertModel
-
 import torch
 from torch.nn import Dropout, Linear, Sequential, BCEWithLogitsLoss, ReLU
+from transformers import BertForSequenceClassification, BertModel
 
 
 class BertBigBang(BertForSequenceClassification):
@@ -32,6 +31,7 @@ class BertBigBang(BertForSequenceClassification):
         pooled_output = outputs[1]
         dropout_output = self.dropout(pooled_output)
         logits = self.classifier(dropout_output)
+
         outputs = (logits,)
 
         if labels is not None:

@@ -5,7 +5,6 @@ import numpy as np
 from sklearn.metrics import f1_score, recall_score, precision_score, accuracy_score
 import torch
 from torch.utils.data import DataLoader
-from termcolor import colored
 
 
 class ModelEvaluator:
@@ -40,7 +39,7 @@ class ModelEvaluator:
             labels = tmp.to(self.args["device"])
         else:
             ind_range = self.parent_dict[i]
-            parent_ind = (parent_labels == 1.0).nonzero()
+            parent_ind = torch.nonzero((parent_labels == 1.0))
             inds = [None] * list(logits.shape)[0]
             for _, x in enumerate(parent_ind.detach().cpu().numpy()):
                 in_range = ind_range[0] <= x[1] < ind_range[1]
@@ -68,6 +67,9 @@ class ModelEvaluator:
         """
         eval_loss = 0
         pred, labels = None, None
+
+        if not epoch:
+            self.model.to(self.args["device"])
         self.model.eval()
 
         for batch in self.dataloader:

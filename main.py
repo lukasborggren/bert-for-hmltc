@@ -1,19 +1,16 @@
 import logging
-import random
 import os
 from os.path import join
+import random
 
 import numpy as np
 import torch
 from transformers import BertTokenizer
 
-# import torch_xla.core.xla_model as xm
-
+from evaluator import ModelEvaluator
 from models import BertBigBang, BertIterative
 from processor import TextProcessor
-
 from trainer import ModelTrainer
-from evaluator import ModelEvaluator
 
 
 logging.basicConfig(
@@ -77,13 +74,13 @@ if __name__ == "__main__":
         "threshold": 0.5,
         "warmup_proportion": 0.1,
         "seed": 0,
-        "do_train": True,
+        "do_train": False,
         "do_eval": True,
-        "save_checkpoints": False,
-        "use_parents": False,
+        "save_checkpoints": True,
+        "use_parents": True,
         "device": torch.device("cuda" if torch.cuda.is_available() else "cpu"),
         "DATA_PATH": str,
-        "session_num": 3,
+        "session_num": 13,
     }
 
     if os.environ["HOME"] == "/root":
@@ -99,20 +96,22 @@ if __name__ == "__main__":
     tokenizer = load_tokenizer(args)
     processor = TextProcessor(args, tokenizer, logger, "topic_list.json")
 
-    # dev = xm.xla_device()
-    # args["device"] = dev
-
     if args["use_parents"]:
         model = create_experimental(args, len(processor.labels))
     else:
         model = create_baseline(args, len(processor.labels))
 
+    model_state_dict = torch.load(
+        join(args["DATA_PATH"], "model_files/13_finetuned_pytorch_model.bin"),
+        map_location="cpu",
+    )
+    model.load_state_dict(model_state_dict)
     if args["do_train"]:
         trainer = ModelTrainer(args, model, logger)
 
         logger.info("Loading data…")
         trainer.dataloader, trainer.num_train_steps = prepare_data(
-            args, processor, "train_raw.pkl", "train"
+            args, processor, "train_ext.pkl", "train"
         )
         if args["do_eval"]:
             trainer.evaluator.dataloader, _ = prepare_data(

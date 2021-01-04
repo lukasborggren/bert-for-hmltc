@@ -3,9 +3,9 @@ from os.path import join
 import torch
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader
+from termcolor import colored
 from transformers import AdamW, get_linear_schedule_with_warmup
 from tqdm import tqdm
-from termcolor import colored
 
 from evaluator import ModelEvaluator
 
@@ -82,17 +82,6 @@ class ModelTrainer:
                     outputs = self.model(input_ids, segment_ids, input_mask, label_ids)
 
                 loss = outputs[0]
-                # if step % 10 == 0:
-                #     print(loss.item())
-                # logits = outputs[1]
-                # logits = logits.sigmoid()
-                # pred = (logits > self.args["threshold"]).float()
-
-                # for j in range(len(label_ids)):
-                #     print([k for k, l in enumerate(label_ids[j, :]) if l == 1])
-                #     print([k for k, l in enumerate(pred[j, :]) if l == 1])
-                #     print("*" * 70)
-
                 # Backward pass, compute gradient of loss w.r.t. model parameters
                 loss.backward()
                 train_loss += loss.item()
@@ -108,7 +97,7 @@ class ModelTrainer:
             if self.args["do_eval"]:
                 self.evaluator.evaluate(i + 1)
 
-            if self.args["save_checkpoints"]:
+            if self.args["save_checkpoints"] and 0 < i < 3:
                 self._save_model(i + 1)
 
         self._save_model()
